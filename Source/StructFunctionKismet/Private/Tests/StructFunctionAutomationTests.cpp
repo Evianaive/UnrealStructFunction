@@ -7,8 +7,10 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
+#include "K2Node_CallFunction.h"
 #include "K2Node_CallStructFunctionInstanced.h"
 #include "K2Node_VariableGet.h"
+#include "Kismet/BlueprintInstancedStructLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
@@ -227,64 +229,208 @@ bool FStructFunctionInstancedPinFilterTest::RunTest(const FString& Parameters)
 	ActionDatabase.RefreshAll();
 	const FBlueprintActionDatabase::FActionRegistry& Registry = ActionDatabase.GetAllActions();
 
-	FBlueprintActionFilter Filter;
-	Filter.Context.Graphs.Add(TempGraph);
-	Filter.Context.Pins.Add(InstancedPin);
+	auto CountVisibleActionsForPin = [&](UEdGraphPin* SourcePin, TMap<FString, int32>& OutNameCounts, int32& OutVisibleCount)
+	{
+		OutNameCounts.Reset();
+		OutVisibleCount = 0;
+
+		FBlueprintActionFilter Filter;
+		Filter.Context.Graphs.Add(TempGraph);
+		Filter.Context.Pins.Add(SourcePin);
+
+		TSet<const UBlueprintNodeSpawner*> SeenSpawners;
+		for (const TPair<FObjectKey, FBlueprintActionDatabase::FActionList>& RegistryPair : Registry)
+		{
+			for (UBlueprintNodeSpawner* NodeSpawner : RegistryPair.Value)
+			{
+				if (!NodeSpawner || NodeSpawner->NodeClass != UK2Node_CallStructFunctionInstanced::StaticClass())
+				{
+					continue;
+				}
+				if (SeenSpawners.Contains(NodeSpawner))
+				{
+					continue;
+				}
+				SeenSpawners.Add(NodeSpawner);
+
+				FBlueprintActionInfo ActionInfo(FInstancedStruct::StaticStruct(), NodeSpawner);
+				if (Filter.IsFiltered(ActionInfo))
+				{
+					continue;
+				}
+
+				UEdGraphNode* TemplateNode = NodeSpawner->GetTemplateNode(TempGraph);
+				UK2Node_CallStructFunctionInstanced* InstancedCallNode = Cast<UK2Node_CallStructFunctionInstanced>(TemplateNode);
+				if (!InstancedCallNode)
+				{
+					AddError(TEXT("Instanced StructFunction action spawned unexpected node type."));
+					continue;
+				}
+
+				UFunction* Function = InstancedCallNode->GetTargetFunction();
+				if (!Function)
+				{
+					AddError(TEXT("Instanced StructFunction action has no target function."));
+					continue;
+				}
+
+				FString OriginalName = Function->GetMetaData(TEXT("StructFunctionOriginalName"));
+				if (OriginalName.IsEmpty())
+				{
+					OriginalName = Function->GetName();
+				}
+				OutNameCounts.FindOrAdd(OriginalName)++;
+				OutVisibleCount++;
+			}
+		}
+	};
 
 	TMap<FString, int32> VisibleNameCounts;
 	int32 VisibleStructFunctionCount = 0;
-
-	TSet<const UBlueprintNodeSpawner*> SeenSpawners;
-	for (const TPair<FObjectKey, FBlueprintActionDatabase::FActionList>& RegistryPair : Registry)
-	{
-		for (UBlueprintNodeSpawner* NodeSpawner : RegistryPair.Value)
-		{
-			if (!NodeSpawner || NodeSpawner->NodeClass != UK2Node_CallStructFunctionInstanced::StaticClass())
-			{
-				continue;
-			}
-			if (SeenSpawners.Contains(NodeSpawner))
-			{
-				continue;
-			}
-			SeenSpawners.Add(NodeSpawner);
-
-			FBlueprintActionInfo ActionInfo(FInstancedStruct::StaticStruct(), NodeSpawner);
-			if (Filter.IsFiltered(ActionInfo))
-			{
-				continue;
-			}
-
-			UEdGraphNode* TemplateNode = NodeSpawner->GetTemplateNode(TempGraph);
-			UK2Node_CallStructFunctionInstanced* InstancedCallNode = Cast<UK2Node_CallStructFunctionInstanced>(TemplateNode);
-			if (!InstancedCallNode)
-			{
-				AddError(TEXT("Instanced StructFunction action spawned unexpected node type."));
-				continue;
-			}
-
-			UFunction* Function = InstancedCallNode->GetTargetFunction();
-			if (!Function)
-			{
-				AddError(TEXT("Instanced StructFunction action has no target function."));
-				continue;
-			}
-
-			FString OriginalName = Function->GetMetaData(TEXT("StructFunctionOriginalName"));
-			if (OriginalName.IsEmpty())
-			{
-				OriginalName = Function->GetName();
-			}
-			VisibleNameCounts.FindOrAdd(OriginalName)++;
-			VisibleStructFunctionCount++;
-		}
-	}
+	CountVisibleActionsForPin(InstancedPin, VisibleNameCounts, VisibleStructFunctionCount);
 
 	TestEqual(TEXT("Visible AssignScore action count"), VisibleNameCounts.FindRef(TEXT("AssignScore")), 1);
 	TestEqual(TEXT("Visible EvaluateScore action count"), VisibleNameCounts.FindRef(TEXT("EvaluateScore")), 1);
+	TestEqual(TEXT("Visible EvaluateScoreNonConst action count"), VisibleNameCounts.FindRef(TEXT("EvaluateScoreNonConst")), 1);
 	TestEqual(TEXT("Hidden SetBase action count"), VisibleNameCounts.FindRef(TEXT("SetBase")), 0);
 	TestEqual(TEXT("Hidden AddToBase action count"), VisibleNameCounts.FindRef(TEXT("AddToBase")), 0);
-	TestEqual(TEXT("Total visible instanced struct actions"), VisibleStructFunctionCount, 2);
+	TestEqual(TEXT("Total visible instanced struct actions"), VisibleStructFunctionCount, 3);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStructFunctionInstancedMakePinFilterTest, "StructFunction.Functions.InstancedMakePinFilter",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStructFunctionInstancedMakePinFilterTest::RunTest(const FString& Parameters)
+{
+	UScriptStruct* DerivedStruct = UClass::TryFindTypeSlow<UScriptStruct>(TEXT("/Script/UStructWithFunction.StructFunctionDerived"));
+	if (!DerivedStruct)
+	{
+		AddError(TEXT("Could not resolve FStructFunctionDerived."));
+		return false;
+	}
+
+	UBlueprint* TempBlueprint = FKismetEditorUtilities::CreateBlueprint(
+		UObject::StaticClass(),
+		GetTransientPackage(),
+		MakeUniqueObjectName(GetTransientPackage(), UBlueprint::StaticClass(), TEXT("BP_StructFunctionInstancedMakeTest")),
+		BPTYPE_Normal,
+		UBlueprint::StaticClass(),
+		UBlueprintGeneratedClass::StaticClass(),
+		FName(TEXT("StructFunctionTests")));
+	if (!TempBlueprint)
+	{
+		AddError(TEXT("Failed to create temporary blueprint for Instanced make pin filtering test."));
+		return false;
+	}
+
+	UEdGraph* TempGraph = TempBlueprint->UbergraphPages.Num() > 0 ? TempBlueprint->UbergraphPages[0] : nullptr;
+	if (!TempGraph)
+	{
+		TempGraph = FBlueprintEditorUtils::CreateNewGraph(TempBlueprint, NAME_None, UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+		FBlueprintEditorUtils::AddUbergraphPage(TempBlueprint, TempGraph);
+	}
+
+	UK2Node_CallFunction* MakeNode = NewObject<UK2Node_CallFunction>(TempGraph);
+	TempGraph->AddNode(MakeNode, false, false);
+	UFunction* MakeFunction = UBlueprintInstancedStructLibrary::StaticClass()->FindFunctionByName(GET_FUNCTION_NAME_CHECKED(UBlueprintInstancedStructLibrary, MakeInstancedStruct));
+	if (!MakeFunction)
+	{
+		AddError(TEXT("Could not resolve MakeInstancedStruct function."));
+		return false;
+	}
+	MakeNode->SetFromFunction(MakeFunction);
+	MakeNode->AllocateDefaultPins();
+
+	UEdGraphPin* ValuePin = MakeNode->FindPin(TEXT("Value"));
+	UEdGraphPin* InstancedPin = MakeNode->GetReturnValuePin();
+	if (!ValuePin || !InstancedPin)
+	{
+		AddError(TEXT("Failed to create MakeInstancedStruct node pins."));
+		return false;
+	}
+
+	ValuePin->PinType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+	ValuePin->PinType.PinSubCategoryObject = DerivedStruct;
+
+	FBlueprintActionDatabase& ActionDatabase = FBlueprintActionDatabase::Get();
+	ActionDatabase.RefreshAll();
+	const FBlueprintActionDatabase::FActionRegistry& Registry = ActionDatabase.GetAllActions();
+
+	auto CountVisibleActionsForPin = [&](UEdGraphPin* SourcePin, TMap<FString, int32>& OutNameCounts, int32& OutVisibleCount)
+	{
+		OutNameCounts.Reset();
+		OutVisibleCount = 0;
+
+		FBlueprintActionFilter Filter;
+		Filter.Context.Graphs.Add(TempGraph);
+		Filter.Context.Pins.Add(SourcePin);
+
+		TSet<const UBlueprintNodeSpawner*> SeenSpawners;
+		for (const TPair<FObjectKey, FBlueprintActionDatabase::FActionList>& RegistryPair : Registry)
+		{
+			for (UBlueprintNodeSpawner* NodeSpawner : RegistryPair.Value)
+			{
+				if (!NodeSpawner || NodeSpawner->NodeClass != UK2Node_CallStructFunctionInstanced::StaticClass())
+				{
+					continue;
+				}
+				if (SeenSpawners.Contains(NodeSpawner))
+				{
+					continue;
+				}
+				SeenSpawners.Add(NodeSpawner);
+
+				FBlueprintActionInfo ActionInfo(FInstancedStruct::StaticStruct(), NodeSpawner);
+				if (Filter.IsFiltered(ActionInfo))
+				{
+					continue;
+				}
+
+				UEdGraphNode* TemplateNode = NodeSpawner->GetTemplateNode(TempGraph);
+				UK2Node_CallStructFunctionInstanced* InstancedCallNode = Cast<UK2Node_CallStructFunctionInstanced>(TemplateNode);
+				if (!InstancedCallNode)
+				{
+					AddError(TEXT("Instanced StructFunction action spawned unexpected node type."));
+					continue;
+				}
+
+				UFunction* Function = InstancedCallNode->GetTargetFunction();
+				if (!Function)
+				{
+					AddError(TEXT("Instanced StructFunction action has no target function."));
+					continue;
+				}
+
+				FString OriginalName = Function->GetMetaData(TEXT("StructFunctionOriginalName"));
+				if (OriginalName.IsEmpty())
+				{
+					OriginalName = Function->GetName();
+				}
+				OutNameCounts.FindOrAdd(OriginalName)++;
+				OutVisibleCount++;
+			}
+		}
+	};
+
+	TMap<FString, int32> VisibleNameCounts;
+	int32 VisibleStructFunctionCount = 0;
+	CountVisibleActionsForPin(InstancedPin, VisibleNameCounts, VisibleStructFunctionCount);
+
+	TestEqual(TEXT("Visible AssignScore action count (make)"), VisibleNameCounts.FindRef(TEXT("AssignScore")), 1);
+	TestEqual(TEXT("Visible EvaluateScore action count (make)"), VisibleNameCounts.FindRef(TEXT("EvaluateScore")), 1);
+	TestEqual(TEXT("Visible EvaluateScoreNonConst action count (make)"), VisibleNameCounts.FindRef(TEXT("EvaluateScoreNonConst")), 1);
+	TestEqual(TEXT("Hidden SetBase action count (make)"), VisibleNameCounts.FindRef(TEXT("SetBase")), 0);
+	TestEqual(TEXT("Hidden AddToBase action count (make)"), VisibleNameCounts.FindRef(TEXT("AddToBase")), 0);
+	TestEqual(TEXT("Total visible instanced struct actions (make)"), VisibleStructFunctionCount, 3);
+
+	ValuePin->PinType.ResetToDefaults();
+	ValuePin->PinType.PinCategory = UEdGraphSchema_K2::PC_Wildcard;
+	ValuePin->PinType.PinSubCategoryObject = nullptr;
+
+	CountVisibleActionsForPin(InstancedPin, VisibleNameCounts, VisibleStructFunctionCount);
+	TestEqual(TEXT("Total visible instanced struct actions (make wildcard)"), VisibleStructFunctionCount, 0);
 
 	return true;
 }

@@ -49,9 +49,6 @@ DEFINE_FUNCTION(UStructFunctionInstancedLibrary::execSetStructFunctionMostRecent
 		Stack.MostRecentPropertyAddress = ResolvedAddress;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("StructFunctionInstanced thunk: expected=%s actual=%s hasBase=%d accepted=%d address=%p"),
-		*GetNameSafe(ExpectedBase), *GetNameSafe(ActualStruct), bHasBaseStruct ? 1 : 0, bTypeAccepted ? 1 : 0, ResolvedAddress);
-
 	P_FINISH;
 	P_NATIVE_BEGIN;
 	P_NATIVE_END;

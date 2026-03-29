@@ -11,6 +11,7 @@
 #include "K2Node_Variable.h"
 #include "KismetCompiler.h"
 #include "KismetCompilerMisc.h"
+#include "Kismet/BlueprintInstancedStructLibrary.h"
 #include "StructFunctionInstancedLibrary.h"
 #include "StructUtils/InstancedStruct.h"
 #include "UObject/UObjectGlobals.h"
@@ -123,6 +124,159 @@ namespace
 			return Struct;
 		}
 		return Cast<UScriptStruct>(LoadObject<UObject>(nullptr, *BaseStructName));
+	}
+
+	UScriptStruct* ResolveStructTypeFromPin(const UEdGraphPin* Pin)
+	{
+		if (!Pin)
+		{
+			return nullptr;
+		}
+		if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Struct)
+		{
+			return Cast<UScriptStruct>(Pin->PinType.PinSubCategoryObject.Get());
+		}
+		return nullptr;
+	}
+
+	UScriptStruct* ResolveStructTypeFromPinOrNet(const UEdGraphPin* Pin)
+	{
+		if (!Pin)
+		{
+			return nullptr;
+		}
+		if (UScriptStruct* PinStruct = ResolveStructTypeFromPin(Pin))
+		{
+			return PinStruct;
+		}
+		if (UEdGraphPin* NetPin = FEdGraphUtilities::GetNetFromPin(const_cast<UEdGraphPin*>(Pin)))
+		{
+			if (UScriptStruct* NetStruct = ResolveStructTypeFromPin(NetPin))
+			{
+				return NetStruct;
+			}
+		}
+		for (const UEdGraphPin* LinkedPin : Pin->LinkedTo)
+		{
+			if (UScriptStruct* LinkedStruct = ResolveStructTypeFromPin(LinkedPin))
+			{
+				return LinkedStruct;
+			}
+			if (UEdGraphPin* LinkedNetPin = FEdGraphUtilities::GetNetFromPin(const_cast<UEdGraphPin*>(LinkedPin)))
+			{
+				if (UScriptStruct* LinkedNetStruct = ResolveStructTypeFromPin(LinkedNetPin))
+				{
+					return LinkedNetStruct;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	UScriptStruct* ResolveConcreteTypeFromMakeInstancedNode(const UEdGraphPin* ContextPin)
+	{
+		const UK2Node_CallFunction* CallFunctionNode = Cast<UK2Node_CallFunction>(ContextPin ? ContextPin->GetOwningNode() : nullptr);
+		if (!CallFunctionNode)
+		{
+			return nullptr;
+		}
+		const UFunction* TargetFunction = CallFunctionNode->GetTargetFunction();
+		if (!TargetFunction
+			|| TargetFunction->GetOuterUClass() != UBlueprintInstancedStructLibrary::StaticClass()
+			|| TargetFunction->GetFName() != GET_FUNCTION_NAME_CHECKED(UBlueprintInstancedStructLibrary, MakeInstancedStruct))
+		{
+			return nullptr;
+		}
+		const UEdGraphPin* ValuePin = CallFunctionNode->FindPin(TEXT("Value"));
+		return ResolveStructTypeFromPinOrNet(ValuePin);
+	}
+
+	UScriptStruct* ResolveBaseStructFromFunctionPin(const UEdGraphPin* ContextPin, bool& bHasMeta)
+	{
+		bHasMeta = false;
+		const UK2Node_CallFunction* CallFunctionNode = Cast<UK2Node_CallFunction>(ContextPin ? ContextPin->GetOwningNode() : nullptr);
+		if (!CallFunctionNode)
+		{
+			return nullptr;
+		}
+
+		const UFunction* TargetFunction = CallFunctionNode->GetTargetFunction();
+		if (!TargetFunction)
+		{
+			return nullptr;
+		}
+
+		const FProperty* SourceProperty = nullptr;
+		if (ContextPin->Direction == EGPD_Output && ContextPin->PinName == UEdGraphSchema_K2::PN_ReturnValue)
+		{
+			SourceProperty = TargetFunction->GetReturnProperty();
+		}
+		if (!SourceProperty)
+		{
+			SourceProperty = FindFProperty<FProperty>(TargetFunction, ContextPin->PinName);
+		}
+		if (!SourceProperty)
+		{
+			return nullptr;
+		}
+
+		const FStructProperty* StructProperty = CastField<FStructProperty>(SourceProperty);
+		if (!StructProperty || StructProperty->Struct != FInstancedStruct::StaticStruct())
+		{
+			return nullptr;
+		}
+
+		return ResolveBaseStructFromProperty(SourceProperty, bHasMeta);
+	}
+
+	UScriptStruct* ResolveContextStructForInstancedPin(const UEdGraphPin* ContextPin, bool& bHasTypeInfo)
+	{
+		bHasTypeInfo = false;
+		if (!ContextPin)
+		{
+			return nullptr;
+		}
+
+		TArray<const UEdGraphPin*> CandidatePins;
+		CandidatePins.Add(ContextPin);
+		if (UEdGraphPin* NetPin = FEdGraphUtilities::GetNetFromPin(const_cast<UEdGraphPin*>(ContextPin)))
+		{
+			CandidatePins.AddUnique(NetPin);
+		}
+
+		for (const UEdGraphPin* CandidatePin : CandidatePins)
+		{
+			const UK2Node_Variable* VariableNode = Cast<UK2Node_Variable>(CandidatePin->GetOwningNode());
+			bool bHasMeta = false;
+			UScriptStruct* PropertyBaseStruct = ResolveBaseStructFromProperty(VariableNode ? VariableNode->GetPropertyForVariable() : nullptr, bHasMeta);
+			if (bHasMeta)
+			{
+				bHasTypeInfo = true;
+				return PropertyBaseStruct;
+			}
+
+			if (UScriptStruct* ConcreteStruct = ResolveConcreteTypeFromMakeInstancedNode(CandidatePin))
+			{
+				bHasTypeInfo = true;
+				return ConcreteStruct;
+			}
+
+			bool bHasFunctionMeta = false;
+			UScriptStruct* FunctionBaseStruct = ResolveBaseStructFromFunctionPin(CandidatePin, bHasFunctionMeta);
+			if (bHasFunctionMeta)
+			{
+				bHasTypeInfo = true;
+				return FunctionBaseStruct;
+			}
+		}
+
+		return nullptr;
+	}
+
+	bool IsOwnerCompatibleWithContextStruct(const UScriptStruct* OwnerStruct, const UScriptStruct* ContextStruct)
+	{
+		return OwnerStruct && ContextStruct
+			&& (OwnerStruct->IsChildOf(ContextStruct) || ContextStruct->IsChildOf(OwnerStruct));
 	}
 
 	FString BuildStructFunctionKeyForInstanced(const UFunction* Function, const UScriptStruct* OwnerStruct)
@@ -335,16 +489,24 @@ bool UK2Node_CallStructFunctionInstanced::IsActionFilteredOut(const FBlueprintAc
 			continue;
 		}
 
-		const UK2Node_Variable* VariableNode = Cast<UK2Node_Variable>(Pin->GetOwningNode());
-		bool bHasMeta = false;
-		UScriptStruct* BaseStruct = ResolveBaseStructFromProperty(VariableNode ? VariableNode->GetPropertyForVariable() : nullptr, bHasMeta);
-		if (bHasMeta && BaseStruct && !OwnerStruct->IsChildOf(BaseStruct))
+		bool bHasTypeInfo = false;
+		UScriptStruct* ContextStruct = ResolveContextStructForInstancedPin(Pin, bHasTypeInfo);
+		if (!bHasTypeInfo)
 		{
-			UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced filtered by BaseStruct mismatch: function=%s owner=%s base=%s"), *Function->GetPathName(), *GetNameSafe(OwnerStruct), *GetNameSafe(BaseStruct));
+			UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced filtered: missing context type info for %s"), *Function->GetPathName());
+			return true;
+		}
+		if (bHasTypeInfo && !ContextStruct)
+		{
+			return true;
+		}
+		if (bHasTypeInfo && !IsOwnerCompatibleWithContextStruct(OwnerStruct, ContextStruct))
+		{
+			UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced filtered by context mismatch: function=%s owner=%s context=%s"), *Function->GetPathName(), *GetNameSafe(OwnerStruct), *GetNameSafe(ContextStruct));
 			return true;
 		}
 
-		UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced allowed function=%s owner=%s hasBaseMeta=%d"), *Function->GetPathName(), *GetNameSafe(OwnerStruct), bHasMeta ? 1 : 0);
+		UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced allowed function=%s owner=%s hasTypeInfo=%d"), *Function->GetPathName(), *GetNameSafe(OwnerStruct), bHasTypeInfo ? 1 : 0);
 		return false;
 	}
 
@@ -367,10 +529,19 @@ bool UK2Node_CallStructFunctionInstanced::IsConnectionDisallowed(const UEdGraphP
 		UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function);
 		if (OwnerStruct)
 		{
-			const UK2Node_Variable* VariableNode = Cast<UK2Node_Variable>(OtherPin->GetOwningNode());
-			bool bHasMeta = false;
-			UScriptStruct* BaseStruct = ResolveBaseStructFromProperty(VariableNode ? VariableNode->GetPropertyForVariable() : nullptr, bHasMeta);
-			if (bHasMeta && BaseStruct && !OwnerStruct->IsChildOf(BaseStruct))
+			bool bHasTypeInfo = false;
+			UScriptStruct* ContextStruct = ResolveContextStructForInstancedPin(OtherPin, bHasTypeInfo);
+			if (!bHasTypeInfo)
+			{
+				OutReason = TEXT("InstancedStruct must provide a BaseStruct or concrete source type.");
+				return true;
+			}
+			if (bHasTypeInfo && !ContextStruct)
+			{
+				OutReason = TEXT("InstancedStruct context type could not be resolved.");
+				return true;
+			}
+			if (bHasTypeInfo && !IsOwnerCompatibleWithContextStruct(OwnerStruct, ContextStruct))
 			{
 				OutReason = TEXT("InstancedStruct BaseStruct does not allow this function.");
 				return true;
@@ -449,25 +620,23 @@ public:
 			return;
 		}
 
-		bool bHasBaseMeta = false;
-		UScriptStruct* BaseStruct = nullptr;
-		if (const UK2Node_Variable* VariableNode = Cast<UK2Node_Variable>(InstancedNet ? InstancedNet->GetOwningNode() : nullptr))
+		bool bHasTypeInfo = false;
+		UScriptStruct* ContextStruct = ResolveContextStructForInstancedPin(InstancedNet ? InstancedNet : InstancedPin, bHasTypeInfo);
+		if (!bHasTypeInfo)
 		{
-			BaseStruct = ResolveBaseStructFromProperty(VariableNode->GetPropertyForVariable(), bHasBaseMeta);
-			if (bHasBaseMeta && !BaseStruct)
-			{
-				CompilerContext.MessageLog.Error(TEXT("Instanced StructFunction node BaseStruct metadata could not be resolved."), Node);
-			}
-			if (bHasBaseMeta && BaseStruct && !OwnerStruct->IsChildOf(BaseStruct))
-			{
-				CompilerContext.MessageLog.Error(TEXT("Instanced StructFunction node is not compatible with BaseStruct."), Node);
-			}
+			CompilerContext.MessageLog.Error(TEXT("Instanced StructFunction node requires BaseStruct metadata or a concrete MakeInstancedStruct source type."), Node);
+		}
+		if (bHasTypeInfo && !ContextStruct)
+		{
+			CompilerContext.MessageLog.Error(TEXT("Instanced StructFunction node context type could not be resolved."), Node);
+		}
+		if (bHasTypeInfo && ContextStruct && !IsOwnerCompatibleWithContextStruct(OwnerStruct, ContextStruct))
+		{
+			CompilerContext.MessageLog.Error(TEXT("Instanced StructFunction node is not compatible with context type."), Node);
 		}
 
 		FBPTerminal* ExpectedBaseTerm = CreateLiteralObjectTerm(Context, Node, OwnerStruct);
-		FBPTerminal* HasBaseTerm = CreateLiteralBoolTerm(Context, Node, bHasBaseMeta);
-		UE_LOG(LogTemp, Display, TEXT("StructFunctionInstanced compile: function=%s owner=%s baseMeta=%s hasBaseMeta=%d"),
-			*GetNameSafe(TargetFunction), *GetNameSafe(OwnerStruct), *GetNameSafe(BaseStruct), bHasBaseMeta ? 1 : 0);
+		FBPTerminal* HasBaseTerm = CreateLiteralBoolTerm(Context, Node, bHasTypeInfo);
 
 		FBlueprintCompiledStatement* SetAddressStatement = new FBlueprintCompiledStatement();
 		Context.AllGeneratedStatements.Add(SetAddressStatement);

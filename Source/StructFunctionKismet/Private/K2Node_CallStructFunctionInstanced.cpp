@@ -466,6 +466,8 @@ public:
 
 		FBPTerminal* ExpectedBaseTerm = CreateLiteralObjectTerm(Context, Node, OwnerStruct);
 		FBPTerminal* HasBaseTerm = CreateLiteralBoolTerm(Context, Node, bHasBaseMeta);
+		UE_LOG(LogTemp, Display, TEXT("StructFunctionInstanced compile: function=%s owner=%s baseMeta=%s hasBaseMeta=%d"),
+			*GetNameSafe(TargetFunction), *GetNameSafe(OwnerStruct), *GetNameSafe(BaseStruct), bHasBaseMeta ? 1 : 0);
 
 		FBlueprintCompiledStatement* SetAddressStatement = new FBlueprintCompiledStatement();
 		Context.AllGeneratedStatements.Add(SetAddressStatement);

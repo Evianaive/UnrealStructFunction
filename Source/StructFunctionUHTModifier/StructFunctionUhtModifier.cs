@@ -345,6 +345,10 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 			{
 				function.MetaData.Add("BlueprintInternalUseOnly", true);
 			}
+			if (!isStaticKeyword)
+			{
+				AppendCsvMeta(function.MetaData, "AutoCreateRefTerm", StructFunctionConstants.StructFunctionTargetParamName);
+			}
 			if (!function.MetaData.ContainsKey(UhtNames.DisplayName))
 			{
 				function.MetaData.Add(UhtNames.DisplayName, originalName);
@@ -416,6 +420,25 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 
 			UhtStructProperty structProperty = new(settings, structObj);
 			return structProperty;
+		}
+
+		private static void AppendCsvMeta(UhtMetaData metaData, string key, string value)
+		{
+			if (metaData.TryGetValue(key, out string? existingValue) && !string.IsNullOrEmpty(existingValue))
+			{
+				foreach (string entry in existingValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+				{
+					if (string.Equals(entry, value, StringComparison.Ordinal))
+					{
+						return;
+					}
+				}
+				metaData.Remove(key);
+				metaData.Add(key, existingValue + "," + value);
+				return;
+			}
+
+			metaData.Add(key, value);
 		}
 
 		private static string BuildFunctionSignatureKey(UhtFunction function)
@@ -693,6 +716,31 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 			targets.Sort((left, right) => right.LineIndex.CompareTo(left.LineIndex));
 			foreach ((StructFunctionInfo info, int lineIndex) in targets)
 			{
+				if (!info.IsStatic)
+				{
+					UhtProperty? selfProperty = FindSelfProperty(info.Function);
+					if (selfProperty != null)
+					{
+						StringBuilder selfNameBuilder = new();
+						selfProperty.AppendFunctionThunkParameterName(selfNameBuilder);
+						string selfParamName = selfNameBuilder.ToString();
+
+						for (int i = lineIndex + 1; i < allLines.Length; i++)
+						{
+							if (allLines[i].Contains("P_FINISH"))
+							{
+								break;
+							}
+							if (allLines[i].Contains("P_GET_STRUCT(", StringComparison.Ordinal)
+								&& allLines[i].Contains(selfParamName, StringComparison.Ordinal))
+							{
+								allLines[i] = allLines[i].Replace("P_GET_STRUCT(", "P_GET_STRUCT_REF(", StringComparison.Ordinal);
+								break;
+							}
+						}
+					}
+				}
+
 				for (int i = lineIndex + 1; i < allLines.Length; i++)
 				{
 					if (allLines[i].Contains("P_NATIVE_END"))

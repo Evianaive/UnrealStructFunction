@@ -25,6 +25,7 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 		public const string StructFunctionSelfKey = "StructFunctionSelf";
 		public const string StructFunctionTargetParamName = "Target";
 		public const string StructFunctionSignatureKey = "StructFunctionSignature";
+		public const string StructFunctionInstancedKey = "StructFunctionInstanced";
 		public const int GeneratedBodyLineBase = 100000;
 	}
 
@@ -336,6 +337,10 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 			function.MetaData.Add(StructFunctionConstants.StructFunctionOwnerKey, structObj.SourceName);
 			function.MetaData.Add(StructFunctionConstants.StructFunctionOriginalNameKey, originalName);
 			function.MetaData.Add(StructFunctionConstants.StructFunctionStaticKey, isStaticKeyword ? "true" : "false");
+			if (!isStaticKeyword && !function.MetaData.ContainsKey(StructFunctionConstants.StructFunctionInstancedKey))
+			{
+				function.MetaData.Add(StructFunctionConstants.StructFunctionInstancedKey, "true");
+			}
 			if (!function.MetaData.ContainsKey("BlueprintInternalUseOnly"))
 			{
 				function.MetaData.Add("BlueprintInternalUseOnly", true);

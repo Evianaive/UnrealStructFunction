@@ -18,11 +18,15 @@ namespace
 		{
 			return nullptr;
 		}
+		if (UScriptStruct* Struct = UClass::TryFindTypeSlow<UScriptStruct>(StructName))
+		{
+			return Struct;
+		}
 		if (UScriptStruct* Struct = FindObject<UScriptStruct>(nullptr, *StructName))
 		{
 			return Struct;
 		}
-		return nullptr;
+		return Cast<UScriptStruct>(LoadObject<UObject>(nullptr, *StructName));
 	}
 
 	FString BuildStructFunctionKey(const UFunction* Function)

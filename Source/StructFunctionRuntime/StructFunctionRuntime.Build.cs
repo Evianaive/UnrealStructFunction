@@ -13,6 +13,7 @@ public class StructFunctionRuntime : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Engine",
+				"StructUtils",
 			}
 		);
 

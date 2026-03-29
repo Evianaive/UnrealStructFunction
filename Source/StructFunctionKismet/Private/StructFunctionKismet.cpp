@@ -14,6 +14,10 @@ void FStructFunctionKismetModule::StartupModule()
 {
 #if WITH_EDITOR
 	PostEngineInitHandle = FCoreDelegates::OnPostEngineInit.AddRaw(this, &FStructFunctionKismetModule::HandlePostEngineInit);
+	if (GEditor)
+	{
+		HandlePostEngineInit();
+	}
 #endif
 }
 

@@ -17,6 +17,10 @@ public:
 	virtual bool IsActionFilteredOut(const FBlueprintActionFilter& Filter) override;
 	virtual bool IsConnectionDisallowed(const UEdGraphPin* MyPin, const UEdGraphPin* OtherPin, FString& OutReason) const override;
 	virtual FNodeHandlingFunctor* CreateNodeHandler(FKismetCompilerContext& CompilerContext) const override;
+	virtual bool CanJumpToDefinition() const override;
+	virtual void JumpToDefinition() const override;
+	virtual FText GetTooltipText() const override;
+	virtual FText GetNodeTitle(ENodeTitleType::Type TitleType) const override;
 
 	UEdGraphPin* GetInstancedTargetPin() const;
 	UEdGraphPin* GetHiddenTargetPin() const;

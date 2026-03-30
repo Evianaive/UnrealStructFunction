@@ -13,4 +13,8 @@ class STRUCTFUNCTIONKISMET_API UK2Node_CallStructFunction : public UK2Node_CallF
 public:
 	virtual void GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionRegistrar) const override;
 	virtual bool IsActionFilteredOut(const FBlueprintActionFilter& Filter) override;
+	virtual bool CanJumpToDefinition() const override;
+	virtual void JumpToDefinition() const override;
+	virtual FText GetTooltipText() const override;
+	virtual FText GetNodeTitle(ENodeTitleType::Type TitleType) const override;
 };

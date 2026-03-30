@@ -6,6 +6,7 @@
 #include "BlueprintActionDatabaseRegistrar.h"
 #include "BlueprintFunctionNodeSpawner.h"
 #include "EdGraphSchema_K2.h"
+#include "SourceCodeNavigation.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
 #include "UObject/UObjectIterator.h"
@@ -66,6 +67,34 @@ namespace
 			}
 		}
 		return OwnerName + TEXT("|") + OriginalName + TEXT("|") + SignatureKey;
+	}
+
+	UScriptStruct* ResolveOwnerStructFromFunction(const UFunction* Function)
+	{
+		if (!Function)
+		{
+			return nullptr;
+		}
+
+		for (TFieldIterator<FProperty> PropIt(Function); PropIt; ++PropIt)
+		{
+			const FProperty* Property = *PropIt;
+			if (!Property->HasAnyPropertyFlags(CPF_Parm) || Property->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				continue;
+			}
+			if (!Property->HasMetaData(TEXT("StructFunctionSelf")) && Property->GetName() != TEXT("Target"))
+			{
+				continue;
+			}
+			if (const FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+			{
+				return StructProperty->Struct;
+			}
+			break;
+		}
+
+		return ResolveStructByName(Function->GetMetaData(TEXT("StructFunctionOwner")));
 	}
 }
 
@@ -169,4 +198,91 @@ bool UK2Node_CallStructFunction::IsActionFilteredOut(const FBlueprintActionFilte
 	}
 
 	return true;
+}
+
+bool UK2Node_CallStructFunction::CanJumpToDefinition() const
+{
+	const UFunction* Function = GetTargetFunction();
+	if (Function && Function->HasMetaData(TEXT("StructFunction")))
+	{
+		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		{
+			if (FSourceCodeNavigation::CanNavigateToStruct(OwnerStruct))
+			{
+				return true;
+			}
+		}
+	}
+
+	return Super::CanJumpToDefinition();
+}
+
+void UK2Node_CallStructFunction::JumpToDefinition() const
+{
+	const UFunction* Function = GetTargetFunction();
+	if (Function && Function->HasMetaData(TEXT("StructFunction")))
+	{
+		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		{
+			if (FSourceCodeNavigation::CanNavigateToStruct(OwnerStruct)
+				&& FSourceCodeNavigation::NavigateToStruct(OwnerStruct))
+			{
+				return;
+			}
+		}
+	}
+
+	Super::JumpToDefinition();
+}
+
+FText UK2Node_CallStructFunction::GetTooltipText() const
+{
+	const UFunction* Function = GetTargetFunction();
+	if (!Function || !Function->HasMetaData(TEXT("StructFunction")))
+	{
+		return Super::GetTooltipText();
+	}
+
+	FString OriginalName = Function->GetMetaData(TEXT("StructFunctionOriginalName"));
+	if (OriginalName.IsEmpty())
+	{
+		OriginalName = Function->GetName();
+	}
+
+	if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+	{
+		return FText::Format(NSLOCTEXT("StructFunction", "StructFunctionTooltip", "Struct function {0}\n\nDeclared in {1}"),
+			FText::FromString(OriginalName),
+			FText::FromString(OwnerStruct->GetName()));
+	}
+
+	return FText::Format(NSLOCTEXT("StructFunction", "StructFunctionTooltipNoOwner", "Struct function {0}"),
+		FText::FromString(OriginalName));
+}
+
+FText UK2Node_CallStructFunction::GetNodeTitle(ENodeTitleType::Type TitleType) const
+{
+	const UFunction* Function = GetTargetFunction();
+	if (!Function || !Function->HasMetaData(TEXT("StructFunction")))
+	{
+		return Super::GetNodeTitle(TitleType);
+	}
+
+	FString OriginalName = Function->GetMetaData(TEXT("StructFunctionOriginalName"));
+	if (OriginalName.IsEmpty())
+	{
+		OriginalName = Function->GetName();
+	}
+
+	if (TitleType == ENodeTitleType::FullTitle)
+	{
+		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		{
+			return FText::Format(NSLOCTEXT("StructFunction", "StructFunctionNodeTitleFull", "{0}\nTarget is {1}"),
+				FText::FromString(OriginalName),
+				FText::FromString(OwnerStruct->GetName()));
+		}
+	}
+
+	return FText::FromString(OriginalName);
 }

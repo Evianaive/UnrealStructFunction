@@ -12,6 +12,7 @@
 #include "KismetCompiler.h"
 #include "KismetCompilerMisc.h"
 #include "Kismet/BlueprintInstancedStructLibrary.h"
+#include "SourceCodeNavigation.h"
 #include "StructFunctionInstancedLibrary.h"
 #include "StructUtils/InstancedStruct.h"
 #include "UObject/UObjectGlobals.h"
@@ -550,6 +551,93 @@ bool UK2Node_CallStructFunctionInstanced::IsConnectionDisallowed(const UEdGraphP
 	}
 
 	return Super::IsConnectionDisallowed(MyPin, OtherPin, OutReason);
+}
+
+bool UK2Node_CallStructFunctionInstanced::CanJumpToDefinition() const
+{
+	const UFunction* Function = GetTargetFunction();
+	if (Function && Function->HasMetaData(TEXT("StructFunctionInstanced")))
+	{
+		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		{
+			if (FSourceCodeNavigation::CanNavigateToStruct(OwnerStruct))
+			{
+				return true;
+			}
+		}
+	}
+
+	return Super::CanJumpToDefinition();
+}
+
+void UK2Node_CallStructFunctionInstanced::JumpToDefinition() const
+{
+	const UFunction* Function = GetTargetFunction();
+	if (Function && Function->HasMetaData(TEXT("StructFunctionInstanced")))
+	{
+		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		{
+			if (FSourceCodeNavigation::CanNavigateToStruct(OwnerStruct)
+				&& FSourceCodeNavigation::NavigateToStruct(OwnerStruct))
+			{
+				return;
+			}
+		}
+	}
+
+	Super::JumpToDefinition();
+}
+
+FText UK2Node_CallStructFunctionInstanced::GetTooltipText() const
+{
+	const UFunction* Function = GetTargetFunction();
+	if (!Function || !Function->HasMetaData(TEXT("StructFunctionInstanced")))
+	{
+		return Super::GetTooltipText();
+	}
+
+	FString OriginalName = Function->GetMetaData(TEXT("StructFunctionOriginalName"));
+	if (OriginalName.IsEmpty())
+	{
+		OriginalName = Function->GetName();
+	}
+
+	if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+	{
+		return FText::Format(NSLOCTEXT("StructFunction", "StructFunctionInstancedTooltip", "Instanced struct function {0}\n\nDeclared in {1}"),
+			FText::FromString(OriginalName),
+			FText::FromString(OwnerStruct->GetName()));
+	}
+
+	return FText::Format(NSLOCTEXT("StructFunction", "StructFunctionInstancedTooltipNoOwner", "Instanced struct function {0}"),
+		FText::FromString(OriginalName));
+}
+
+FText UK2Node_CallStructFunctionInstanced::GetNodeTitle(ENodeTitleType::Type TitleType) const
+{
+	const UFunction* Function = GetTargetFunction();
+	if (!Function || !Function->HasMetaData(TEXT("StructFunctionInstanced")))
+	{
+		return Super::GetNodeTitle(TitleType);
+	}
+
+	FString OriginalName = Function->GetMetaData(TEXT("StructFunctionOriginalName"));
+	if (OriginalName.IsEmpty())
+	{
+		OriginalName = Function->GetName();
+	}
+
+	if (TitleType == ENodeTitleType::FullTitle)
+	{
+		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		{
+			return FText::Format(NSLOCTEXT("StructFunction", "StructFunctionInstancedNodeTitleFull", "{0}\nTarget is {1}"),
+				FText::FromString(OriginalName),
+				FText::FromString(OwnerStruct->GetName()));
+		}
+	}
+
+	return FText::FromString(OriginalName);
 }
 
 UEdGraphPin* UK2Node_CallStructFunctionInstanced::GetInstancedTargetPin() const

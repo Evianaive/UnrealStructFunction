@@ -17,6 +17,28 @@ StructFunction makes `USTRUCT` methods feel like first-class Blueprint functions
 - Typed action filtering for `FInstancedStruct` contexts (property metadata, make-node type, and function metadata when available).
 - Cleaner editor UX for struct function nodes (original names and struct-oriented navigation).
 
+## Requirements
+
+- Unreal Engine `5.5+`.
+- Engine plugin dependency: `StructUtils`.
+
+`StructUtils` is an Epic engine plugin dependency, not a third-party marketplace dependency.
+
+## Installation
+
+### From Source
+
+1. Copy `StructFunction` into `YourProject/Plugins/StructFunction/`.
+2. Regenerate project files.
+3. Build your project editor target.
+4. Enable the plugin in **Edit > Plugins** if needed.
+
+### From Fab/Marketplace
+
+1. Install the plugin from Fab via Epic Games Launcher.
+2. Open your project and enable **StructFunction** in **Edit > Plugins**.
+3. Restart the editor.
+
 ## Quick Start
 
 1. Include the macro header:
@@ -79,3 +101,8 @@ This writes Blueprint variable metadata key `BaseStruct`, which is then used by 
 
 - If an `FInstancedStruct` pin has no usable type constraints, instanced struct-function actions are hidden by design.
 - Type filtering is strongest when context carries explicit type info (for example `BaseStruct` metadata or a typed `MakeInstancedStruct` source).
+
+## Support
+
+- Issues: `https://github.com/Evianaive/StructFunction/issues`
+- Documentation: `https://github.com/Evianaive/StructFunction`

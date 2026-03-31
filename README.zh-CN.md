@@ -17,6 +17,28 @@ StructFunction 让 `USTRUCT` 成员函数在蓝图中更接近一等公民体验
 - 对 `FInstancedStruct` 做基于上下文的类型筛选（属性元数据、Make 节点类型、函数元数据）。
 - 优化节点编辑器体验（显示原始函数名、面向 struct 的跳转行为）。
 
+## 依赖与版本要求
+
+- Unreal Engine `5.5+`
+- 引擎插件依赖：`StructUtils`
+
+`StructUtils` 属于 Epic 引擎内置插件依赖，不是第三方市场插件依赖。
+
+## 安装方式
+
+### 源码安装
+
+1. 将 `StructFunction` 目录复制到 `YourProject/Plugins/StructFunction/`。
+2. 重新生成项目文件。
+3. 编译项目 Editor 目标。
+4. 如有需要，在 **Edit > Plugins** 中启用该插件。
+
+### Fab/Marketplace 安装
+
+1. 通过 Epic Games Launcher 从 Fab 安装插件。
+2. 打开项目，在 **Edit > Plugins** 中启用 **StructFunction**。
+3. 重启编辑器。
+
 ## 使用方式
 
 1. 在使用 `USTRUCTFUNCTION` 的头文件中包含宏头：
@@ -79,3 +101,8 @@ FInstancedStruct InstancedScore;
 
 - 当 `FInstancedStruct` pin 没有可用类型约束信息时，Instanced 版本函数会被隐藏（设计如此）。
 - 当上下文携带明确类型信息（如 `BaseStruct` 或已定型的 `MakeInstancedStruct`）时，筛选精度最佳。
+
+## 支持
+
+- 问题反馈：`https://github.com/Evianaive/StructFunction/issues`
+- 文档主页：`https://github.com/Evianaive/StructFunction`

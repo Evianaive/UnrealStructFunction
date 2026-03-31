@@ -1,28 +1,40 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "1.0",
+	"Version": 2,
+	"VersionName": "1.1.0",
 	"FriendlyName": "StructFunction",
-	"Description": "Expose USTRUCTFUNCTION methods as Blueprint-callable functions.",
-	"Category": "Other",
-	"CreatedBy": "",
-	"CreatedByURL": "",
-	"DocsURL": "",
+	"Description": "Expose USTRUCTFUNCTION methods as Blueprint-callable functions, including typed polymorphic calls for FInstancedStruct.",
+	"Category": "Code Plugins",
+	"CreatedBy": "Evianaive",
+	"CreatedByURL": "https://github.com/Evianaive",
+	"DocsURL": "https://github.com/Evianaive/StructFunction",
+	"SupportURL": "https://github.com/Evianaive/StructFunction/issues",
 	"MarketplaceURL": "",
+	"EngineVersion": "5.5.0",
 	"CanContainContent": false,
 	"IsBetaVersion": false,
-	"IsExperimentalVersion": true,
+	"IsExperimentalVersion": false,
 	"Installed": false,
 	"Modules": [
 		{
 			"Name": "StructFunctionRuntime",
 			"Type": "Runtime",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
 		},
 		{
 			"Name": "StructFunctionKismet",
 			"Type": "UncookedOnly",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
 		}
 	],
 	"Plugins": [

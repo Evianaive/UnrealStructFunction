@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 2024-2026 Evianaive. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;

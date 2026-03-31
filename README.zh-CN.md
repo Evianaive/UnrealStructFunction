@@ -19,7 +19,7 @@ StructFunction 让 `USTRUCT` 成员函数在蓝图中更接近一等公民体验
 
 ## 依赖与版本要求
 
-- Unreal Engine `5.5+`
+- Unreal Engine `5.7+`
 - 引擎插件依赖：`StructUtils`
 
 `StructUtils` 属于 Epic 引擎内置插件依赖，不是第三方市场插件依赖。

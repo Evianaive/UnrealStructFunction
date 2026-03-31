@@ -19,7 +19,7 @@ StructFunction makes `USTRUCT` methods feel like first-class Blueprint functions
 
 ## Requirements
 
-- Unreal Engine `5.5+`.
+- Unreal Engine `5.7+`.
 - Engine plugin dependency: `StructUtils`.
 
 `StructUtils` is an Epic engine plugin dependency, not a third-party marketplace dependency.

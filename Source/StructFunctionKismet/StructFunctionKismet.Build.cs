@@ -25,6 +25,8 @@ public class StructFunctionKismet : ModuleRules
 				"BlueprintGraph",
 				"KismetCompiler",
 				"Kismet",
+				"PropertyEditor",
+				"StructViewer",
 				"StructUtils",
 				"StructFunctionRuntime",
 			}

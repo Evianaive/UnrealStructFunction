@@ -12,8 +12,14 @@ public:
 
 private:
 	void HandlePostEngineInit();
+#if WITH_EDITOR
+	void RegisterVariableCustomizationIfNeeded();
+	void HandleModulesChanged(FName ModuleName, EModuleChangeReason Reason);
+#endif
 
 #if WITH_EDITOR
 	FDelegateHandle PostEngineInitHandle;
+	FDelegateHandle VariableCustomizationHandle;
+	FDelegateHandle ModulesChangedHandle;
 #endif
 };

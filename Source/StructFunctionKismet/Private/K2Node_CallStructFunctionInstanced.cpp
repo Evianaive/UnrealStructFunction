@@ -70,7 +70,7 @@ namespace
 		return Cast<UScriptStruct>(LoadObject<UObject>(nullptr, *StructName));
 	}
 
-	UScriptStruct* ResolveOwnerStructFromFunction(const UFunction* Function)
+	UScriptStruct* ResolveStructFunctionOwnerFromFunction(const UFunction* Function)
 	{
 		if (const FStructProperty* SelfProperty = FindStructFunctionSelfProperty(Function))
 		{
@@ -402,7 +402,7 @@ void UK2Node_CallStructFunctionInstanced::GetMenuActions(FBlueprintActionDatabas
 			{
 				continue;
 			}
-			UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function);
+			UScriptStruct* OwnerStruct = ResolveStructFunctionOwnerFromFunction(Function);
 			if (!OwnerStruct)
 			{
 				UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced GetMenuActions skip (owner unresolved): %s ownerMeta=%s"), *Function->GetPathName(), *Function->GetMetaData(TEXT("StructFunctionOwner")));
@@ -471,7 +471,7 @@ bool UK2Node_CallStructFunctionInstanced::IsActionFilteredOut(const FBlueprintAc
 		return true;
 	}
 
-	UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function);
+	UScriptStruct* OwnerStruct = ResolveStructFunctionOwnerFromFunction(Function);
 	if (!OwnerStruct)
 	{
 		UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced filter out: owner unresolved for %s (ownerMeta=%s)"), *Function->GetPathName(), *Function->GetMetaData(TEXT("StructFunctionOwner")));
@@ -527,7 +527,7 @@ bool UK2Node_CallStructFunctionInstanced::IsConnectionDisallowed(const UEdGraphP
 		}
 
 		UFunction* Function = GetTargetFunction();
-		UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function);
+		UScriptStruct* OwnerStruct = ResolveStructFunctionOwnerFromFunction(Function);
 		if (OwnerStruct)
 		{
 			bool bHasTypeInfo = false;
@@ -558,7 +558,7 @@ bool UK2Node_CallStructFunctionInstanced::CanJumpToDefinition() const
 	const UFunction* Function = GetTargetFunction();
 	if (Function && Function->HasMetaData(TEXT("StructFunctionInstanced")))
 	{
-		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		if (const UScriptStruct* OwnerStruct = ResolveStructFunctionOwnerFromFunction(Function))
 		{
 			if (FSourceCodeNavigation::CanNavigateToStruct(OwnerStruct))
 			{
@@ -575,7 +575,7 @@ void UK2Node_CallStructFunctionInstanced::JumpToDefinition() const
 	const UFunction* Function = GetTargetFunction();
 	if (Function && Function->HasMetaData(TEXT("StructFunctionInstanced")))
 	{
-		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		if (const UScriptStruct* OwnerStruct = ResolveStructFunctionOwnerFromFunction(Function))
 		{
 			if (FSourceCodeNavigation::CanNavigateToStruct(OwnerStruct)
 				&& FSourceCodeNavigation::NavigateToStruct(OwnerStruct))
@@ -602,7 +602,7 @@ FText UK2Node_CallStructFunctionInstanced::GetTooltipText() const
 		OriginalName = Function->GetName();
 	}
 
-	if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+	if (const UScriptStruct* OwnerStruct = ResolveStructFunctionOwnerFromFunction(Function))
 	{
 		return FText::Format(NSLOCTEXT("StructFunction", "StructFunctionInstancedTooltip", "Instanced struct function {0}\n\nDeclared in {1}"),
 			FText::FromString(OriginalName),
@@ -629,7 +629,7 @@ FText UK2Node_CallStructFunctionInstanced::GetNodeTitle(ENodeTitleType::Type Tit
 
 	if (TitleType == ENodeTitleType::FullTitle)
 	{
-		if (const UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(Function))
+		if (const UScriptStruct* OwnerStruct = ResolveStructFunctionOwnerFromFunction(Function))
 		{
 			return FText::Format(NSLOCTEXT("StructFunction", "StructFunctionInstancedNodeTitleFull", "{0}\nTarget is {1}"),
 				FText::FromString(OriginalName),
@@ -700,7 +700,7 @@ public:
 			return;
 		}
 
-		UScriptStruct* OwnerStruct = ResolveOwnerStructFromFunction(TargetFunction);
+		UScriptStruct* OwnerStruct = ResolveStructFunctionOwnerFromFunction(TargetFunction);
 		if (!OwnerStruct)
 		{
 			CompilerContext.MessageLog.Error(TEXT("Instanced StructFunction node could not resolve owner struct."), Node);

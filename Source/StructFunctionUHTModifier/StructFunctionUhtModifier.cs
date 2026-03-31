@@ -83,7 +83,7 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 			return uniqueName;
 		}
 
-		public static StructFunctionLibraryInfo GetOrCreateLibrary(UhtHeaderFile headerFile, int lineNumber)
+		public static StructFunctionLibraryInfo GetOrCreateLibrary(UhtHeaderFile headerFile, UhtNamespace namespaceObj, int lineNumber)
 		{
 			if (LibrariesByHeader.TryGetValue(headerFile, out StructFunctionLibraryInfo? existing))
 			{
@@ -98,7 +98,7 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 			string className = $"UStructFunctionLibrary_{headerBaseName}_{headerFile.HeaderFileTypeIndex}";
 
 			UhtEngineNameParts nameParts = UhtUtilities.GetEngineNameParts(className);
-			UhtClass libraryClass = new(headerFile, headerFile.Module.ScriptPackage, lineNumber)
+			UhtClass libraryClass = new(headerFile, namespaceObj, headerFile.Module.ScriptPackage, lineNumber)
 			{
 				ClassType = UhtClassType.Class,
 				SourceName = className,
@@ -109,7 +109,7 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 				HasGeneratedBody = true,
 			};
 			libraryClass.ClassFlags |= EClassFlags.Native | EClassFlags.Abstract;
-			libraryClass.SuperIdentifier = new UhtToken(UhtTokenType.Identifier, 0, 0, 0, lineNumber, new StringView("UObject"));
+			libraryClass.SuperIdentifier = new[] { new UhtToken(UhtTokenType.Identifier, 0, 0, 0, lineNumber, new StringView("UObject")) };
 			UhtParsingScope.AddModuleRelativePathToMetaData(libraryClass.MetaData, headerFile);
 			libraryClass.MetaData.Add(UhtNames.IncludePath, headerFile.ModuleRelativeFilePath);
 
@@ -269,9 +269,9 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 				return UhtParseResult.Unhandled;
 			}
 
-			StructFunctionLibraryInfo libraryInfo = StructFunctionRegistry.GetOrCreateLibrary(structObj.HeaderFile, token.InputLine);
+			StructFunctionLibraryInfo libraryInfo = StructFunctionRegistry.GetOrCreateLibrary(structObj.HeaderFile, parentScope.HeaderParser.GetNamespace(), token.InputLine);
 
-			UhtFunction function = new(parentScope.HeaderFile, libraryInfo.Class, token.InputLine);
+			UhtFunction function = new(parentScope.HeaderFile, parentScope.HeaderParser.GetNamespace(), libraryInfo.Class, token.InputLine);
 			function.FunctionType = UhtFunctionType.Function;
 			function.FunctionFlags |= EFunctionFlags.Native | EFunctionFlags.Public | EFunctionFlags.Static;
 			function.FunctionExportFlags |= UhtFunctionExportFlags.CppStatic;
@@ -312,7 +312,7 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 
 			UhtToken funcNameToken = new();
 			UhtProperty? returnValueProperty = null;
-			topScope.HeaderParser.GetCachedPropertyParser().Parse(topScope, EPropertyFlags.None,
+			UhtPropertyParser.Parse(topScope, EPropertyFlags.None,
 				GetPropertyParseOptions(function, true), UhtPropertyCategory.Return,
 				(UhtParsingScope topScope, UhtProperty property, ref UhtToken nameToken, UhtLayoutMacroType layoutMacroType) =>
 				{
@@ -390,7 +390,7 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 			else if (topScope.TokenReader.TryPeekOptional('{'))
 			{
 				UhtToken tokenCopy = new();
-				topScope.TokenReader.SkipDeclaration(ref tokenCopy);
+				topScope.SkipDeclaration(tokenCopy);
 			}
 
 			string signatureKey = BuildFunctionSignatureKey(function);
@@ -581,7 +581,7 @@ namespace Plugins.StructFunction.StructFunctionUHTModifierUbtPlugin
 
 			topScope.TokenReader.RequireList(')', ',', false, () =>
 			{
-				topScope.HeaderParser.GetCachedPropertyParser().Parse(topScope, disallowFlags, options, propertyCategory,
+				UhtPropertyParser.Parse(topScope, disallowFlags, options, propertyCategory,
 					(UhtParsingScope topScope, UhtProperty property, ref UhtToken nameToken, UhtLayoutMacroType layoutMacroType) =>
 					{
 						property.PropertyFlags |= EPropertyFlags.Parm;

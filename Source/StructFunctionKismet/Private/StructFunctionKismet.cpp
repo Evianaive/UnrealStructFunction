@@ -4,6 +4,8 @@
 
 #include "BlueprintActionDatabase.h"
 #include "BlueprintEditorModule.h"
+#include "K2Node_FunctionEntry.h"
+#include "K2Node_Tunnel.h"
 #include "Misc/CoreDelegates.h"
 #include "StructFunctionInstancedBaseStructCustomization.h"
 #include "UObject/UnrealType.h"
@@ -37,6 +39,24 @@ void FStructFunctionKismetModule::ShutdownModule()
 		VariableCustomizationHandle.Reset();
 	}
 
+	if (FunctionCustomizationHandle.IsValid())
+	{
+		if (FBlueprintEditorModule* BlueprintEditorModule = FModuleManager::GetModulePtr<FBlueprintEditorModule>("Kismet"))
+		{
+			BlueprintEditorModule->UnregisterFunctionCustomization(UK2Node_FunctionEntry::StaticClass(), FunctionCustomizationHandle);
+		}
+		FunctionCustomizationHandle.Reset();
+	}
+
+	if (MacroCustomizationHandle.IsValid())
+	{
+		if (FBlueprintEditorModule* BlueprintEditorModule = FModuleManager::GetModulePtr<FBlueprintEditorModule>("Kismet"))
+		{
+			BlueprintEditorModule->UnregisterFunctionCustomization(UK2Node_Tunnel::StaticClass(), MacroCustomizationHandle);
+		}
+		MacroCustomizationHandle.Reset();
+	}
+
 	if (ModulesChangedHandle.IsValid())
 	{
 		FModuleManager::Get().OnModulesChanged().Remove(ModulesChangedHandle);
@@ -58,24 +78,41 @@ void FStructFunctionKismetModule::HandlePostEngineInit()
 	{
 		return;
 	}
-	RegisterVariableCustomizationIfNeeded();
+	RegisterBlueprintCustomizationsIfNeeded();
 	FBlueprintActionDatabase::Get().RefreshAll();
 #endif
 }
 
 #if WITH_EDITOR
-void FStructFunctionKismetModule::RegisterVariableCustomizationIfNeeded()
+void FStructFunctionKismetModule::RegisterBlueprintCustomizationsIfNeeded()
 {
-	if (VariableCustomizationHandle.IsValid())
+	if (VariableCustomizationHandle.IsValid() && FunctionCustomizationHandle.IsValid() && MacroCustomizationHandle.IsValid())
 	{
 		return;
 	}
 
 	if (FBlueprintEditorModule* BlueprintEditorModule = FModuleManager::LoadModulePtr<FBlueprintEditorModule>("Kismet"))
 	{
-		VariableCustomizationHandle = BlueprintEditorModule->RegisterVariableCustomization(
-			FStructProperty::StaticClass(),
-			FOnGetVariableCustomizationInstance::CreateStatic(&FStructFunctionInstancedBaseStructCustomization::MakeInstance));
+		if (!VariableCustomizationHandle.IsValid())
+		{
+			VariableCustomizationHandle = BlueprintEditorModule->RegisterVariableCustomization(
+				FStructProperty::StaticClass(),
+				FOnGetVariableCustomizationInstance::CreateStatic(&FStructFunctionInstancedBaseStructCustomization::MakeInstance));
+		}
+
+		if (!FunctionCustomizationHandle.IsValid())
+		{
+			FunctionCustomizationHandle = BlueprintEditorModule->RegisterFunctionCustomization(
+				UK2Node_FunctionEntry::StaticClass(),
+				FOnGetFunctionCustomizationInstance::CreateStatic(&FStructFunctionInstancedBaseStructCustomization::MakeInstance));
+		}
+
+		if (!MacroCustomizationHandle.IsValid())
+		{
+			MacroCustomizationHandle = BlueprintEditorModule->RegisterFunctionCustomization(
+				UK2Node_Tunnel::StaticClass(),
+				FOnGetFunctionCustomizationInstance::CreateStatic(&FStructFunctionInstancedBaseStructCustomization::MakeInstance));
+		}
 	}
 }
 
@@ -83,7 +120,7 @@ void FStructFunctionKismetModule::HandleModulesChanged(FName ModuleName, EModule
 {
 	if (Reason == EModuleChangeReason::ModuleLoaded && ModuleName == TEXT("Kismet"))
 	{
-		RegisterVariableCustomizationIfNeeded();
+		RegisterBlueprintCustomizationsIfNeeded();
 	}
 }
 #endif

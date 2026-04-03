@@ -8,7 +8,12 @@
 #include "CallFunctionHandler.h"
 #include "EdGraphUtilities.h"
 #include "EdGraphSchema_K2.h"
+#include "K2Node_EditablePinBase.h"
+#include "K2Node_FunctionEntry.h"
+#include "K2Node_FunctionResult.h"
+#include "K2Node_Tunnel.h"
 #include "K2Node_Variable.h"
+#include "Kismet2/BlueprintEditorUtils.h"
 #include "KismetCompiler.h"
 #include "KismetCompilerMisc.h"
 #include "Kismet/BlueprintInstancedStructLibrary.h"
@@ -23,6 +28,13 @@
 
 namespace
 {
+	constexpr TCHAR FunctionPinBaseStructMetaPrefix[] = TEXT("StructFunctionBaseStruct_");
+
+	FName GetFunctionPinBaseStructMetaKey(const FName& PinName)
+	{
+		return FName(*(FString(FunctionPinBaseStructMetaPrefix) + PinName.ToString()));
+	}
+
 	const FStructProperty* FindStructFunctionSelfProperty(const UFunction* Function)
 	{
 		if (!Function)
@@ -77,6 +89,132 @@ namespace
 			return SelfProperty->Struct;
 		}
 		return ResolveStructByNameInstanced(Function ? Function->GetMetaData(TEXT("StructFunctionOwner")) : FString());
+	}
+
+	const FKismetUserDeclaredFunctionMetadata* ResolveFunctionTerminatorMetadata(const UEdGraphPin* ContextPin)
+	{
+		if (!ContextPin)
+		{
+			return nullptr;
+		}
+
+		const UEdGraphNode* OwningNode = ContextPin->GetOwningNode();
+		const UK2Node_EditablePinBase* EntryNode = Cast<UK2Node_EditablePinBase>(OwningNode);
+
+		if (const UK2Node_FunctionResult* FunctionResultNode = Cast<UK2Node_FunctionResult>(OwningNode))
+		{
+			if (const UEdGraph* FunctionGraph = FunctionResultNode->GetGraph())
+			{
+				TWeakObjectPtr<UK2Node_EditablePinBase> EntryNodeFromGraph;
+				TWeakObjectPtr<UK2Node_EditablePinBase> ResultNodeFromGraph;
+				FBlueprintEditorUtils::GetEntryAndResultNodes(FunctionGraph, EntryNodeFromGraph, ResultNodeFromGraph);
+				if (EntryNodeFromGraph.IsValid())
+				{
+					EntryNode = EntryNodeFromGraph.Get();
+				}
+			}
+		}
+		else if (const UK2Node_Tunnel* TunnelNode = Cast<UK2Node_Tunnel>(OwningNode))
+		{
+			if (!TunnelNode->DrawNodeAsEntry())
+			{
+				if (const UEdGraph* FunctionGraph = TunnelNode->GetGraph())
+				{
+					TWeakObjectPtr<UK2Node_EditablePinBase> EntryNodeFromGraph;
+					TWeakObjectPtr<UK2Node_EditablePinBase> ResultNodeFromGraph;
+					FBlueprintEditorUtils::GetEntryAndResultNodes(FunctionGraph, EntryNodeFromGraph, ResultNodeFromGraph);
+					if (EntryNodeFromGraph.IsValid())
+					{
+						EntryNode = EntryNodeFromGraph.Get();
+					}
+				}
+			}
+		}
+
+		if (const UK2Node_FunctionEntry* FunctionEntry = Cast<UK2Node_FunctionEntry>(EntryNode))
+		{
+			return &FunctionEntry->MetaData;
+		}
+		if (const UK2Node_Tunnel* TunnelEntry = Cast<UK2Node_Tunnel>(EntryNode))
+		{
+			return TunnelEntry->DrawNodeAsEntry() ? &TunnelEntry->MetaData : nullptr;
+		}
+
+		return nullptr;
+	}
+
+	bool IsFunctionTerminatorInstancedPin(const UEdGraphPin* Pin)
+	{
+		if (!Pin
+			|| Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Struct
+			|| Pin->PinType.PinSubCategoryObject != FInstancedStruct::StaticStruct())
+		{
+			return false;
+		}
+
+		const UEdGraphNode* OwningNode = Pin->GetOwningNode();
+		return Cast<UK2Node_FunctionEntry>(OwningNode)
+			|| Cast<UK2Node_FunctionResult>(OwningNode)
+			|| Cast<UK2Node_Tunnel>(OwningNode);
+	}
+
+	void CollectConnectedCandidatePins(const UEdGraphPin* StartPin, TArray<const UEdGraphPin*>& OutPins)
+	{
+		if (!StartPin)
+		{
+			return;
+		}
+
+		TArray<const UEdGraphPin*> Queue;
+		TSet<const UEdGraphPin*> Visited;
+		Queue.Add(StartPin);
+
+		while (Queue.Num() > 0)
+		{
+			const UEdGraphPin* CurrentPin = Queue.Pop(EAllowShrinking::No);
+			if (!CurrentPin || Visited.Contains(CurrentPin))
+			{
+				continue;
+			}
+
+			Visited.Add(CurrentPin);
+			OutPins.Add(CurrentPin);
+
+			if (UEdGraphPin* NetPin = FEdGraphUtilities::GetNetFromPin(const_cast<UEdGraphPin*>(CurrentPin)))
+			{
+				if (!Visited.Contains(NetPin))
+				{
+					Queue.Add(NetPin);
+				}
+			}
+
+			for (const UEdGraphPin* LinkedPin : CurrentPin->LinkedTo)
+			{
+				if (!Visited.Contains(LinkedPin))
+				{
+					Queue.Add(LinkedPin);
+				}
+			}
+		}
+	}
+
+	UScriptStruct* ResolveBaseStructFromFunctionTerminatorPin(const UEdGraphPin* ContextPin, bool& bHasMeta)
+	{
+		bHasMeta = false;
+		const FKismetUserDeclaredFunctionMetadata* Metadata = ResolveFunctionTerminatorMetadata(ContextPin);
+		if (!Metadata)
+		{
+			return nullptr;
+		}
+
+		const FName MetaKey = GetFunctionPinBaseStructMetaKey(ContextPin->PinName);
+		if (!Metadata->HasMetaData(MetaKey))
+		{
+			return nullptr;
+		}
+
+		bHasMeta = true;
+		return ResolveStructByNameInstanced(Metadata->GetMetaData(MetaKey));
 	}
 
 	UScriptStruct* GetRootStructOwner(UScriptStruct* Struct)
@@ -227,7 +365,20 @@ namespace
 			return nullptr;
 		}
 
-		return ResolveBaseStructFromProperty(SourceProperty, bHasMeta);
+		UScriptStruct* BaseStruct = ResolveBaseStructFromProperty(SourceProperty, bHasMeta);
+		if (bHasMeta)
+		{
+			return BaseStruct;
+		}
+
+		const FName MetaKey = GetFunctionPinBaseStructMetaKey(ContextPin->PinName);
+		if (TargetFunction->HasMetaData(MetaKey))
+		{
+			bHasMeta = true;
+			return ResolveStructByNameInstanced(TargetFunction->GetMetaData(MetaKey));
+		}
+
+		return nullptr;
 	}
 
 	UScriptStruct* ResolveContextStructForInstancedPin(const UEdGraphPin* ContextPin, bool& bHasTypeInfo)
@@ -239,11 +390,7 @@ namespace
 		}
 
 		TArray<const UEdGraphPin*> CandidatePins;
-		CandidatePins.Add(ContextPin);
-		if (UEdGraphPin* NetPin = FEdGraphUtilities::GetNetFromPin(const_cast<UEdGraphPin*>(ContextPin)))
-		{
-			CandidatePins.AddUnique(NetPin);
-		}
+		CollectConnectedCandidatePins(ContextPin, CandidatePins);
 
 		for (const UEdGraphPin* CandidatePin : CandidatePins)
 		{
@@ -260,6 +407,14 @@ namespace
 			{
 				bHasTypeInfo = true;
 				return ConcreteStruct;
+			}
+
+			bool bHasFunctionTerminatorMeta = false;
+			UScriptStruct* FunctionTerminatorBaseStruct = ResolveBaseStructFromFunctionTerminatorPin(CandidatePin, bHasFunctionTerminatorMeta);
+			if (bHasFunctionTerminatorMeta)
+			{
+				bHasTypeInfo = true;
+				return FunctionTerminatorBaseStruct;
 			}
 
 			bool bHasFunctionMeta = false;
@@ -494,6 +649,11 @@ bool UK2Node_CallStructFunctionInstanced::IsActionFilteredOut(const FBlueprintAc
 		UScriptStruct* ContextStruct = ResolveContextStructForInstancedPin(Pin, bHasTypeInfo);
 		if (!bHasTypeInfo)
 		{
+			if (IsFunctionTerminatorInstancedPin(Pin))
+			{
+				UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced allowed unresolved terminator context for %s"), *Function->GetPathName());
+				return false;
+			}
 			UE_LOG(LogTemp, Verbose, TEXT("StructFunctionInstanced filtered: missing context type info for %s"), *Function->GetPathName());
 			return true;
 		}
@@ -534,6 +694,10 @@ bool UK2Node_CallStructFunctionInstanced::IsConnectionDisallowed(const UEdGraphP
 			UScriptStruct* ContextStruct = ResolveContextStructForInstancedPin(OtherPin, bHasTypeInfo);
 			if (!bHasTypeInfo)
 			{
+				if (IsFunctionTerminatorInstancedPin(OtherPin))
+				{
+					return Super::IsConnectionDisallowed(MyPin, OtherPin, OutReason);
+				}
 				OutReason = TEXT("InstancedStruct must provide a BaseStruct or concrete source type.");
 				return true;
 			}

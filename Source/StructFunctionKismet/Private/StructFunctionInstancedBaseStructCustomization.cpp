@@ -35,8 +35,8 @@
 namespace
 {
 	constexpr TCHAR BaseStructMetaKey[] = TEXT("BaseStruct");
-	constexpr TCHAR FunctionPinBaseStructMetaPrefix[] = TEXT("StructFunctionBaseStruct_");
-	constexpr TCHAR FunctionPinBaseStructModePrefix[] = TEXT("StructFunctionBaseStructMode_");
+	constexpr TCHAR CustomizationFunctionPinBaseStructMetaPrefix[] = TEXT("StructFunctionBaseStruct_");
+	constexpr TCHAR CustomizationFunctionPinBaseStructModePrefix[] = TEXT("StructFunctionBaseStructMode_");
 
 	enum class EFunctionPinBaseStructMode : uint8
 	{
@@ -52,14 +52,14 @@ namespace
 		bool bConflict = false;
 	};
 
-	FName BuildFunctionPinBaseStructMetaKey(const FName& PinName)
+	FName BuildCustomizationFunctionPinBaseStructMetaKey(const FName& PinName)
 	{
-		return FName(*(FString(FunctionPinBaseStructMetaPrefix) + PinName.ToString()));
+		return FName(*(FString(CustomizationFunctionPinBaseStructMetaPrefix) + PinName.ToString()));
 	}
 
-	FName BuildFunctionPinModeMetaKey(const FName& PinName)
+	FName BuildCustomizationFunctionPinModeMetaKey(const FName& PinName)
 	{
-		return FName(*(FString(FunctionPinBaseStructModePrefix) + PinName.ToString()));
+		return FName(*(FString(CustomizationFunctionPinBaseStructModePrefix) + PinName.ToString()));
 	}
 
 	const FKismetUserDeclaredFunctionMetadata* GetTerminatorMetadata(const UK2Node_EditablePinBase* EntryNode)
@@ -109,7 +109,7 @@ namespace
 			return nullptr;
 		}
 
-		const FName MetaKey = BuildFunctionPinBaseStructMetaKey(PinName);
+		const FName MetaKey = BuildCustomizationFunctionPinBaseStructMetaKey(PinName);
 		if (!Metadata->HasMetaData(MetaKey))
 		{
 			return nullptr;
@@ -126,10 +126,10 @@ namespace
 			return EFunctionPinBaseStructMode::None;
 		}
 
-		const FName ModeKey = BuildFunctionPinModeMetaKey(PinName);
+		const FName ModeKey = BuildCustomizationFunctionPinModeMetaKey(PinName);
 		if (!Metadata->HasMetaData(ModeKey))
 		{
-			return Metadata->HasMetaData(BuildFunctionPinBaseStructMetaKey(PinName))
+			return Metadata->HasMetaData(BuildCustomizationFunctionPinBaseStructMetaKey(PinName))
 				? EFunctionPinBaseStructMode::Manual
 				: EFunctionPinBaseStructMode::None;
 		}
@@ -160,8 +160,8 @@ namespace
 		}
 
 		EntryNode->Modify();
-		const FName MetaKey = BuildFunctionPinBaseStructMetaKey(PinName);
-		const FName ModeKey = BuildFunctionPinModeMetaKey(PinName);
+		const FName MetaKey = BuildCustomizationFunctionPinBaseStructMetaKey(PinName);
+		const FName ModeKey = BuildCustomizationFunctionPinModeMetaKey(PinName);
 
 		if (InStruct)
 		{
@@ -177,7 +177,7 @@ namespace
 		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 	}
 
-	const FStructProperty* FindStructFunctionSelfProperty(const UFunction* Function)
+	const FStructProperty* FindCustomizationStructFunctionSelfProperty(const UFunction* Function)
 	{
 		if (!Function)
 		{
@@ -201,14 +201,14 @@ namespace
 		return nullptr;
 	}
 
-	UScriptStruct* ResolveStructFunctionOwnerFromFunction(const UFunction* Function)
+	UScriptStruct* ResolveCustomizationStructFunctionOwnerFromFunction(const UFunction* Function)
 	{
 		if (!Function)
 		{
 			return nullptr;
 		}
 
-		if (const FStructProperty* SelfProperty = FindStructFunctionSelfProperty(Function))
+		if (const FStructProperty* SelfProperty = FindCustomizationStructFunctionSelfProperty(Function))
 		{
 			return SelfProperty->Struct;
 		}
@@ -309,7 +309,7 @@ namespace
 		{
 			if (Pin == StructCallNode->GetInstancedTargetPin())
 			{
-				AddStructUnique(ResolveStructFunctionOwnerFromFunction(StructCallNode->GetTargetFunction()));
+				AddStructUnique(ResolveCustomizationStructFunctionOwnerFromFunction(StructCallNode->GetTargetFunction()));
 			}
 		}
 
